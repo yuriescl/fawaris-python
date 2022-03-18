@@ -1,19 +1,21 @@
 [tool.poetry]
 name = "fawaris"
 version = "0.1.0"
-description = "A small Stellar Anchor library"
+description = "An async framework-agnostic Stellar Anchor implementation"
 authors = ["Yuri Escalianti <yuriescl@gmail.com>"]
 license = "Apache License Version 2.0"
 
 [tool.poetry.dependencies]
 python = "^3.7"
-pydantic = "^1.9.0"
 stellar-sdk = "^7.0.1"
+pydantic = "^1.0"
+PyJWT = "^2.1"
 
 [tool.poetry.dev-dependencies]
 blank = "^0.1.0"
 flake8 = "^4.0.1"
 ipython = "7.32.0"
+black = "^22.1.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
