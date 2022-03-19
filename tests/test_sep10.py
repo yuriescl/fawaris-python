@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from stellar_sdk import Network, Keypair, TransactionEnvelope
-from fawaris.sep10 import Sep10, Sep10GetRequest, Sep10PostRequest
+from fawaris import Sep10, Sep10GetRequest, Sep10PostRequest
 
 
 class TestSep10(unittest.TestCase):

@@ -1,10 +1,12 @@
 from typing import Optional, List, Dict, Union, Iterable, Callable, Any
 from urllib.parse import urlparse
+from datetime import datetime, timezone
 import os
 import os.path
 
-from pydantic import BaseModel, Field
 import jwt
+from jwt import decode
+from jwt.exceptions import InvalidTokenError
 import toml
 from stellar_sdk.sep.stellar_web_authentication import (
     build_challenge_transaction,
@@ -24,44 +26,18 @@ from stellar_sdk.exceptions import (
     ConnectionError,
     Ed25519PublicKeyInvalidError,
     Ed25519SecretSeedInvalidError,
+    MuxedEd25519AccountInvalidError,
+    ValueError as StellarSdkValueError,
 )
 from stellar_sdk.client.aiohttp_client import AiohttpClient
+from stellar_sdk.strkey import StrKey
 
-
-class Sep10GetRequest(BaseModel):
-    """
-    `GET <WEB_AUTH_ENDPOINT>` request schema
-    """
-
-    account: str
-    home_domain: str
-    memo: Optional[str] = None
-    client_domain: Optional[str] = None
-
-
-class Sep10GetResponse(BaseModel):
-    """
-    `GET <WEB_AUTH_ENDPOINT>` response schema
-    """
-
-    transaction: str
-    network_passphrase: str
-
-
-class Sep10PostRequest(BaseModel):
-    """
-    `POST <WEB_AUTH_ENDPOINT>` request schema
-    """
-
-    transaction: str
-
-
-class Sep10PostResponse(BaseModel):
-    """
-    `POST <WEB_AUTH_ENDPOINT>` response schema
-    """
-
-    token: str
+from fawaris.models import (
+    Sep10GetRequest,
+    Sep10GetResponse,
+    Sep10PostRequest,
+    Sep10PostResponse,
+)
 
 
 class Sep10:
@@ -74,7 +50,7 @@ class Sep10:
     client_domain_required: bool
     client_domains_allowed: Optional[List[str]]
     client_domains_denied: Optional[List[str]]
-    log: Callable[[], Any]
+    log: Callable[[str], Any]
 
     server_account_id: str
     web_auth_domain: str
@@ -90,7 +66,7 @@ class Sep10:
         client_domain_required: bool = False,
         client_domains_allowed: Optional[List[str]] = None,
         client_domains_denied: Optional[List[str]] = None,
-        log: Optional[Callable[[], Any]] = lambda msg: None,
+        log: Optional[Callable[[str], Any]] = lambda msg: None,
     ):
         """
         Implementation of `SEP0010 <https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md>`_
@@ -137,7 +113,7 @@ class Sep10:
         self.client_domains_denied = client_domains_denied
         self.log = log
 
-    async def get(
+    async def http_get(
         self,
         request: Sep10GetRequest,
         timeout: int = 900,
@@ -216,7 +192,7 @@ class Sep10:
             network_passphrase=self.network_passphrase,
         )
 
-    async def post(self, request: Sep10PostRequest) -> Sep10PostResponse:
+    async def http_post(self, request: Sep10PostRequest) -> Sep10PostResponse:
         client_domain = await self._validate_challenge_xdr(request)
         return Sep10PostResponse(token=self._generate_jwt(request, client_domain))
 
@@ -313,7 +289,9 @@ class Sep10:
 
         return client_domain
 
-    def _generate_jwt(self, request: Sep10PostRequest, client_domain: str = None) -> str:
+    def _generate_jwt(
+        self, request: Sep10PostRequest, client_domain: str = None
+    ) -> str:
         challenge = read_challenge_transaction(
             challenge_transaction=request.transaction,
             server_account_id=self.server_account_id,
@@ -321,9 +299,7 @@ class Sep10:
             web_auth_domain=self.web_auth_domain,
             network_passphrase=self.network_passphrase,
         )
-        self.log(
-            f"Generating SEP-10 token for account {challenge.client_account_id}"
-        )
+        self.log(f"Generating SEP-10 token for account {challenge.client_account_id}")
 
         # set iat value to minimum timebound of the challenge so that the JWT returned
         # for a given challenge is always the same.
@@ -345,3 +321,150 @@ class Sep10:
             "client_domain": client_domain,
         }
         return jwt.encode(jwt_dict, self.jwt_key, algorithm="HS256")
+
+class Sep10Token:
+    """
+    SEP-10 token representation.
+    See https://github.com/stellar/django-polaris/blob/v2.2.0/polaris/polaris/sep10/token.py
+    """
+
+    _REQUIRED_FIELDS = {"iss", "sub", "iat", "exp"}
+
+    def __init__(self, jwt: Union[str, Dict], jwt_key):
+        if isinstance(jwt, str):
+            try:
+                jwt = decode(jwt, jwt_key, algorithms=["HS256"])
+            except InvalidTokenError as e:
+                raise ValueError("unable to decode jwt" + str(e))
+        elif not isinstance(jwt, Dict):
+            raise ValueError(
+                "invalid type for 'jwt' parameter: must be a string or dictionary"
+            )
+
+        if not self._REQUIRED_FIELDS.issubset(set(jwt.keys())):
+            raise ValueError(
+                f"jwt is missing one of the required fields: {', '.join(self._REQUIRED_FIELDS)}"
+            )
+
+        memo = None
+        stellar_account = None
+        if jwt["sub"].startswith("M"):
+            try:
+                StrKey.decode_muxed_account(jwt["sub"])
+            except (MuxedEd25519AccountInvalidError, StellarSdkValueError):
+                raise ValueError(f"invalid muxed account address: {jwt['sub']}")
+        elif ":" in jwt["sub"]:
+            try:
+                stellar_account, memo = jwt["sub"].split(":")
+            except ValueError:
+                raise ValueError(f"improperly formatted 'sub' value: {jwt['sub']}")
+        else:
+            stellar_account = jwt["sub"]
+
+        if stellar_account:
+            try:
+                Keypair.from_public_key(stellar_account)
+            except Ed25519PublicKeyInvalidError:
+                raise ValueError(f"invalid Stellar public key: {jwt['sub']}")
+
+        if memo:
+            try:
+                int(memo)
+            except ValueError:
+                raise ValueError(
+                    f"invalid memo in 'sub' value, expected 64-bit integer: {memo}"
+                )
+
+        try:
+            iat = datetime.fromtimestamp(jwt["iat"], tz=timezone.utc)
+        except (OSError, ValueError, OverflowError):
+            raise ValueError("invalid iat value")
+        try:
+            exp = datetime.fromtimestamp(jwt["exp"], tz=timezone.utc)
+        except (OSError, ValueError, OverflowError):
+            raise ValueError("invalid exp value")
+
+        now = datetime.now(tz=timezone.utc)
+        if now < iat or now > exp:
+            raise ValueError("jwt is no longer valid")
+
+        client_domain = jwt.get("client_domain")
+        if (
+            client_domain
+            and urlparse(f"https://{client_domain}").netloc != client_domain
+        ):
+            raise ValueError("'client_domain' must be a hostname")
+
+        self._payload = jwt
+
+    @property
+    def account(self) -> str:
+        """
+        The Stellar account (`G...`) authenticated. Note that a muxed account
+        could have been authenticated, in which case `Token.muxed_account` should
+        be used.
+        """
+        if self._payload["sub"].startswith("M"):
+            return MuxedAccount.from_account(self._payload["sub"]).account_id
+        elif ":" in self._payload["sub"]:
+            return self._payload["sub"].split(":")[0]
+        else:
+            return self._payload["sub"]
+
+    @property
+    def muxed_account(self) -> Optional[str]:
+        """
+        The M-address specified in the payload's ``sub`` value, if present
+        """
+        return self._payload["sub"] if self._payload["sub"].startswith("M") else None
+
+    @property
+    def memo(self) -> Optional[int]:
+        """
+        The memo included with the payload's ``sub`` value, if present
+        """
+        return (
+            int(self._payload["sub"].split(":")[1])
+            if ":" in self._payload["sub"]
+            else None
+        )
+
+    @property
+    def issuer(self) -> str:
+        """
+        The principal that issued a token, RFC7519, Section 4.1.1 — a Uniform
+        Resource Identifier (URI) for the issuer
+        (https://example.com or https://example.com/G...)
+        """
+        return self._payload["iss"]
+
+    @property
+    def issued_at(self) -> datetime:
+        """
+        The time at which the JWT was issued RFC7519, Section 4.1.6 -
+        represented as a UTC datetime object
+        """
+        return datetime.fromtimestamp(self._payload["iat"], tz=timezone.utc)
+
+    @property
+    def expires_at(self) -> datetime:
+        """
+        The expiration time on or after which the JWT will not accepted for
+        processing, RFC7519, Section 4.1.4 — represented as a UTC datetime object
+        """
+        return datetime.fromtimestamp(self._payload["exp"], tz=timezone.utc)
+
+    @property
+    def client_domain(self) -> Optional[str]:
+        """
+        A nonstandard JWT claim containing the client's home domain, included if
+        the challenge transaction contained a ``client_domain`` ManageData operation
+        """
+        return self._payload.get("client_domain")
+
+    @property
+    def payload(self) -> dict:
+        """
+        The decoded contents of the JWT string
+        """
+        return self._payload
