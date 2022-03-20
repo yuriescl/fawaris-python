@@ -2,6 +2,7 @@ import enum
 from typing import Optional, List, Dict, Any
 
 
+from typing_extensions import Literal
 from pydantic import BaseModel, Field
 
 class Sep9Customer(BaseModel):
@@ -54,27 +55,26 @@ class TransactionRefunds(BaseModel):
 class TransactionRequiredInfoUpdates(BaseModel):
     transaction: Any
 
-class TransactionStatus(BaseModel):
-    completed = "completed"
-    pending_external = "pending_external"
-    pending_anchor = "pending_anchor"
-    pending_stellar = "pending_stellar"
-    pending_trust = "pending_trust"
-    pending_user = "pending_user"
-    pending_user_transfer_start = "pending_user_transfer_start"
-    pending_user_transfer_complete = "pending_user_transfer_complete"
-    pending_customer_info_update = "pending_customer_info_update"
-    pending_transaction_info_update = "pending_transaction_info_update"
-    incomplete = "incomplete"
-    no_market = "no_market"
-    too_small = "too_small"
-    too_large = "too_large"
-    error = "error"
-
 class Transaction(BaseModel):
     id: str
     kind: str
-    status: TransactionStatus
+    status: Literal[
+        "completed",
+        "pending_external",
+        "pending_anchor",
+        "pending_stellar",
+        "pending_trust",
+        "pending_user",
+        "pending_user_transfer_start",
+        "pending_user_transfer_complete",
+        "pending_customer_info_update",
+        "pending_transaction_info_update",
+        "incomplete",
+        "no_market",
+        "too_small",
+        "too_large",
+        "error",
+    ]
     status_eta: Optional[int]
     more_info_url: Optional[str]
     amount_in: Optional[str]
@@ -83,7 +83,7 @@ class Transaction(BaseModel):
     amount_out_asset: Optional[str]
     amount_fee: Optional[str]
     amount_fee_asset: Optional[str]
-    from_address: Optional[str] = Field(..., alias="from")
+    from_address: Optional[str] = Field(None, alias="from")
     to: Optional[str]
     external_extra: Optional[str]
     external_extra_text: Optional[str]
@@ -152,10 +152,68 @@ class Sep24DepositPostRequest(Sep9Customer, BaseModel):
     lang: Optional[str] = "en"
     claimable_balance_supported: Optional[bool]
 
-class Sep24AuthenticationRequiredResponse(BaseModel):
-    type: str = "authentication_required"
+class Sep24WithdrawPostRequest(Sep9Customer, BaseModel):
+    asset_code: str
+    asset_issuer: Optional[str]
+    amount: Optional[str]
+    account: Optional[str]
+    memo: Optional[str]
+    memo_type: Optional[str]
+    wallet_name: Optional[str]
+    wallet_url: Optional[str]
+    lang: Optional[str] = "en"
 
 class Sep24DepositPostResponse(BaseModel):
     type: str = "interactive_customer_info_needed"
     url: str
     id: str
+
+class Sep24PostResponse(BaseModel):
+    type: str = "interactive_customer_info_needed"
+    url: str
+    id: str
+
+class Sep24InfoRequest(BaseModel):
+    lang: Optional[str] = "en"
+
+class Sep24InfoResponseDeposit(BaseModel):
+    enabled: bool
+    min_amount: Optional[str]
+    max_amount: Optional[str]
+    fee_fixed: Optional[str]
+    fee_percent: Optional[str]
+    fee_minimum: Optional[str]
+
+class Sep24InfoResponseWithdraw(BaseModel):
+    enabled: bool
+    min_amount: Optional[str]
+    max_amount: Optional[str]
+    fee_fixed: Optional[str]
+    fee_percent: Optional[str]
+    fee_minimum: Optional[str]
+
+class Sep24InfoResponseFee(BaseModel):
+    authentication_required: bool
+    enabled: bool
+
+class Sep24InfoResponseFeatures(BaseModel):
+    account_creation: bool
+    claimable_balances: bool
+
+class Sep24InfoResponse(BaseModel):
+    deposit: Dict[str, Sep24InfoResponseDeposit]
+    withdraw: Dict[str, Sep24InfoResponseWithdraw]
+    fee: Sep24InfoResponseFee
+    features: Sep24InfoResponseFeatures
+
+class Sep24FeeRequest(BaseModel):
+    operation: str
+    asset_code: str
+    amount: str
+    type: Optional[str]
+
+class Sep24FeeResponse(BaseModel):
+    operation: str
+    asset_code: str
+    amount: str
+    type: Optional[str]

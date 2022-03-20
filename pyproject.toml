@@ -16,6 +16,11 @@ blank = "^0.1.0"
 flake8 = "^4.0.1"
 ipython = "7.32.0"
 black = "^22.1.0"
+fastapi = "^0.75.0"
+uvicorn = {extras = ["standard"], version = "^0.17.6"}
+overrides = "^6.1.0"
+python-multipart = "^0.0.5"
+typing-extensions = "^4.1.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
