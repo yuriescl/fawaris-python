@@ -4,8 +4,8 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from fawaris.models import (
     Sep9Customer,
-    TransactionStatus,
-    Transaction,
+    Sep24TransactionStatus,
+    Sep24Transaction,
     Sep24DepositPostRequest,
     Sep24WithdrawPostRequest,
     Sep24PostResponse,
@@ -74,7 +74,7 @@ class Sep24(ABC):
         await self.update_transactions(received_deposits, status="pending_anchor")
 
     async def task_poll_withdrawals_received(self):
-        pass #TODO
+        pass # TODO
 
     async def task_poll_withdrawals_sent(self):
         withdrawals_sent = await self.get_transactions(kind="withdrawal", status="pending_external")
@@ -126,26 +126,26 @@ class Sep24(ABC):
         self,
         request: Union[Sep24DepositPostRequest, Sep24WithdrawPostRequest],
         token: Sep10Token,
-        tx: Transaction,
+        tx: Sep24Transaction,
     ):
         raise NotImplementedError()
 
     @abstractmethod
-    async def get_transactions(**filters) -> List[Transaction]:
+    async def get_transactions(**filters) -> List[Sep24Transaction]:
         raise NotImplementedError()
 
     @abstractmethod
-    async def is_deposit_received(self, deposit: Transaction) -> bool:
+    async def is_deposit_received(self, deposit: Sep24Transaction) -> bool:
         raise NotImplementedError()
 
     @abstractmethod
-    async def is_withdrawal_complete(self, withdrawal: Transaction) -> bool:
+    async def is_withdrawal_complete(self, withdrawal: Sep24Transaction) -> bool:
         raise NotImplementedError()
 
     @abstractmethod
-    async def update_transactions(self, transactions: List[Transaction], **values):
+    async def update_transactions(self, transactions: List[Sep24Transaction], **values):
         raise NotImplementedError()
 
     @abstractmethod
-    async def send_withdrawal(self, withdrawal: Transaction) -> None:
+    async def send_withdrawal(self, withdrawal: Sep24Transaction) -> None:
         raise NotImplementedError()
