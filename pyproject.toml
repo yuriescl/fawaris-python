@@ -10,17 +10,23 @@ python = "^3.7"
 stellar-sdk = "^7.0.1"
 pydantic = "^1.0"
 PyJWT = "^2.1"
+typing-extensions = "^4.1.1"
+fastapi = {version = "^0.75.0", extras = ["fastapi"]}
+uvicorn = {version = "^0.17.6", extras = ["fastapi"]}
+python-multipart = {version = "^0.0.5", extras = ["fastapi"]}
+databases = {version = "^0.5.5", extras = ["postgresql,asyncpg,aiopg,mysql,aiomysql,asyncmy,sqlite,aiosqlite"]}
+asyncpg = {version = "^0.25.0", extras = ["asyncpg,postgresql"]}
+aiopg = {version = "^1.3.3", extras = ["aiopg"]}
+aiomysql = {version = "^0.0.22", extras = ["mysql,aiomysql"]}
+asyncmy = {version = "^0.2.3", extras = ["asyncmy"]}
+aiosqlite = {version = "^0.17.0", extras = ["sqlite,aiosqlite"]}
+overrides = {version = "^6.1.0", extras = ["fastapi,postgresql,asyncpg,aiopg,mysql,aiomysql,asyncmy,sqlite,aiosqlite"]}
 
 [tool.poetry.dev-dependencies]
 blank = "^0.1.0"
 flake8 = "^4.0.1"
 ipython = "7.32.0"
 black = "^22.1.0"
-fastapi = "^0.75.0"
-uvicorn = {extras = ["standard"], version = "^0.17.6"}
-overrides = "^6.1.0"
-python-multipart = "^0.0.5"
-typing-extensions = "^4.1.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

@@ -41,40 +41,41 @@ class Sep9Customer(BaseModel):
     photo_proof_residence: Any
     sex: Optional[str]
 
-class TransactionRefundsPayment(BaseModel):
+class Sep24TransactionRefundsPayment(BaseModel):
     id: str
     id_type: str
     amount: str
     fee: str
 
-class TransactionRefunds(BaseModel):
+class Sep24TransactionRefunds(BaseModel):
     amount_refunded: str
     amount_fee: str
-    payments: List[TransactionRefundsPayment]
+    payments: List[Sep24TransactionRefundsPayment]
 
-class TransactionRequiredInfoUpdates(BaseModel):
+class Sep24TransactionRequiredInfoUpdates(BaseModel):
     transaction: Any
 
-class Transaction(BaseModel):
+
+Sep24TransactionStatus = Literal[
+    "incomplete",
+    "pending_user_transfer_start",
+    "pending_user_transfer_complete",
+    "pending_external",
+    "pending_anchor",
+    "pending_stellar",
+    "pending_trust",
+    "pending_user",
+    "completed",
+    "no_market",
+    "too_small",
+    "too_large",
+    "error",
+]
+
+class Sep24Transaction(BaseModel):
     id: str
     kind: str
-    status: Literal[
-        "completed",
-        "pending_external",
-        "pending_anchor",
-        "pending_stellar",
-        "pending_trust",
-        "pending_user",
-        "pending_user_transfer_start",
-        "pending_user_transfer_complete",
-        "pending_customer_info_update",
-        "pending_transaction_info_update",
-        "incomplete",
-        "no_market",
-        "too_small",
-        "too_large",
-        "error",
-    ]
+    status: Sep24TransactionStatus
     status_eta: Optional[int]
     more_info_url: Optional[str]
     amount_in: Optional[str]
@@ -97,9 +98,9 @@ class Transaction(BaseModel):
     stellar_transaction_id: Optional[str]
     external_transaction_id: Optional[str]
     message: Optional[str]
-    refunds: Optional[TransactionRefunds]
+    refunds: Optional[Sep24TransactionRefunds]
     required_info_message: Optional[str]
-    required_info_updates: Optional[TransactionRequiredInfoUpdates]
+    required_info_updates: Optional[Sep24TransactionRequiredInfoUpdates]
     claimable_balance_id: Optional[str]
 
 
@@ -217,3 +218,21 @@ class Sep24FeeResponse(BaseModel):
     asset_code: str
     amount: str
     type: Optional[str]
+
+class Sep24TransactionsGetRequest(BaseModel):
+    asset_code: str
+    no_older_than: Optional[str]
+    limit: int
+    kind: str
+    paging_id: str
+
+class Sep24TransactionsGetResponse(BaseModel):
+    transactions: List[Sep24Transaction]
+
+class Sep24TransactionGetRequest(BaseModel):
+    id: str
+    stellar_transaction_id: Optional[str]
+    external_transaction_id: Optional[str]
+
+class Sep24TransactionGetResponse(BaseModel):
+    transaction: Sep24Transaction
