@@ -1,7 +1,7 @@
 import fawaris
-from utils import detect_and_get_request_data
+from fawaris.fastapi.utils import detect_and_get_request_data
 
-def add_routes(app, sep10_obj: fawaris.Sep10):
+def register_routes(app, sep10_obj: fawaris.Sep10):
     @app.get("/auth")
     async def http_get(request):
         params = dict(request.query_params)
