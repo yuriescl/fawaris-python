@@ -72,9 +72,11 @@ Sep24TransactionStatus = Literal[
     "error",
 ]
 
+Sep24TransactionKind = Literal["deposit", "withdrawal"]
+
 class Sep24Transaction(BaseModel):
     id: str
-    kind: str
+    kind: Sep24TransactionKind
     status: Sep24TransactionStatus
     status_eta: Optional[int]
     more_info_url: Optional[str]
@@ -84,8 +86,8 @@ class Sep24Transaction(BaseModel):
     amount_out_asset: Optional[str]
     amount_fee: Optional[str]
     amount_fee_asset: Optional[str]
-    from_address: Optional[str] = Field(None, alias="from")
-    to: Optional[str]
+    from_address: Optional[str]
+    to_address: Optional[str]
     external_extra: Optional[str]
     external_extra_text: Optional[str]
     deposit_memo: Optional[str]
@@ -104,6 +106,9 @@ class Sep24Transaction(BaseModel):
     claimable_balance_id: Optional[str]
 
 
+class Asset(BaseModel):
+    code: str
+    issuer: Optional[str]
 
 class Sep10GetRequest(BaseModel):
     """
@@ -222,9 +227,9 @@ class Sep24FeeResponse(BaseModel):
 class Sep24TransactionsGetRequest(BaseModel):
     asset_code: str
     no_older_than: Optional[str]
-    limit: int
-    kind: str
-    paging_id: str
+    limit: Optional[int]
+    kind: Optional[str]
+    paging_id: Optional[str]
 
 class Sep24TransactionsGetResponse(BaseModel):
     transactions: List[Sep24Transaction]

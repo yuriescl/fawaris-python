@@ -1,5 +1,6 @@
 from .exceptions import Sep10InvalidToken
 from .models import (
+    Asset,
     Sep9Customer,
     Sep10GetRequest,
     Sep10GetResponse,
@@ -8,6 +9,7 @@ from .models import (
     Sep24TransactionRefundsPayment,
     Sep24TransactionRefunds,
     Sep24TransactionRequiredInfoUpdates,
+    Sep24TransactionKind,
     Sep24TransactionStatus,
     Sep24Transaction,
     Sep24DepositPostRequest,
