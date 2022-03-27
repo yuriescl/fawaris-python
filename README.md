@@ -2,7 +2,7 @@
 
 Async framework-agnostic Stellar Anchor interface.  
 Each Stellar SEP is implemented as a class with abstract methods to be
-overriden by any Anchor-specific implementation.  
+overwritten by any Anchor-specific implementation.  
 This library on itself is not a working Stellar Anchor. It's meant to be
 used as a base for Anchors to implement their logic.  
 
