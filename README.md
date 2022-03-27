@@ -6,6 +6,8 @@ overriden by any Anchor-specific implementation.
 This library on itself is not a working Stellar Anchor. It's meant to be
 used as a base for Anchors to implement their logic.  
 
+This library is heavily inspired and contains code from [django-polaris](https://github.com/stellar/django-polaris).
+
 Facts about this library:
 - Focused on being fully Async
 - Not attached to any web framework
