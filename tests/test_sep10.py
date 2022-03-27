@@ -24,7 +24,7 @@ class TestSep10(unittest.TestCase):
             )
 
             client_kp = Keypair.from_secret(client_account_secret)
-            resp = await sep10.get(
+            resp = await sep10.http_get(
                 Sep10GetRequest(
                     account=client_kp.public_key,
                     home_domain="localhost",
@@ -39,7 +39,7 @@ class TestSep10(unittest.TestCase):
             envelope.sign(client_signing_key)
             client_signed_envelope_xdr = envelope.to_xdr_object().to_xdr()
 
-            resp = await sep10.post(
+            resp = await sep10.http_post(
                 Sep10PostRequest(transaction=client_signed_envelope_xdr)
             )
             assert resp.token
