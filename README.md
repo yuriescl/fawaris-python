@@ -26,3 +26,34 @@ poetry install
 poetry shell
 python -m unittest discover tests
 ```
+
+Todo:
+    - v1
+        - locking
+            - operation protection on transactions
+            - add documentation regarding database locks
+            - add documentation regarding database caching
+        - fastapi add logging with transaction id
+        - how to make it easy to migrate database?
+        - fastapi handle sigint/sigterm
+        - fawaris_fastapi handle stellar horizon errors when doing operations
+            503
+            400
+            500
+        - pydantic validators
+            - prerequesites for each method call
+            - stellar addresses
+            - decimal places
+        - pydantic types checking?
+        - docstrings
+        - add doc explaining motivations to build this software
+        - add logging (use self.log)
+        - add tables documentation
+        - add API (use JWT + CORS)
+            generate jwt similar to sep10
+            https://github.com/aekasitt/fastapi-csrf-protect
+        - check #TODO in code
+    - v2
+        - custodial wallet support
+        - multisig support
+        - SEP-24 validate SEP-10 token account
