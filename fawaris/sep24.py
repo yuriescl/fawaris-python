@@ -1,6 +1,7 @@
 import asyncio
 from typing import Optional, Callable, Any, Union, List, Dict, Tuple
 from abc import ABC, abstractmethod
+import logging
 from pydantic import BaseModel
 from stellar_sdk.client.aiohttp_client import AiohttpClient
 from stellar_sdk import ServerAsync, TransactionEnvelope
@@ -41,7 +42,6 @@ from fawaris.models import (
     Sep24TransactionGetResponse,
     Asset,
 )
-from fawaris.exceptions import Sep10InvalidToken
 from fawaris.sep10 import Sep10Token
 
 PaymentOpResult = Union[
@@ -50,30 +50,36 @@ PaymentOpResult = Union[
 PaymentOp = Union[Payment, PathPaymentStrictReceive, PathPaymentStrictSend]
 
 
+logger = logging.getLogger(__name__)
+
+
 class Sep24(ABC):
-    sep10_jwt_key: str
+    sep10_jwt_secret: str
     horizon_url: str
     network_passphrase: str
-    assets: Dict[str, str]
-    log: Callable[[str], Any]
+    assets: Dict[str, Asset]
 
     def __init__(
         self,
-        sep10_jwt_key: str,
+        sep10_jwt_secret: str,
         horizon_url: str,
         network_passphrase: str,
-        assets: Dict[str, str],
-        log: Optional[Callable[[str], Any]] = lambda msg: None,
+        assets: Dict[str, Asset],
     ):
-        self.sep10_jwt_key = sep10_jwt_key
+        self.sep10_jwt_secret = sep10_jwt_secret
         self.horizon_url = horizon_url
         self.network_passphrase = network_passphrase
         self.assets = assets
-        self.log = log
 
     async def http_post_transactions_deposit_interactive(
         self, request: Sep24DepositPostRequest, token: Sep10Token
     ) -> Sep24PostResponse:
+        info = await self.http_get_info(Sep24InfoRequest(lang=request.lang))
+        try:
+            if not info["deposit"][request.asset_code].enabled:
+                raise KeyError()
+        except KeyError:
+            raise ValueError(f"Deposit is not enabled for asset {request.asset_code}")
         tx = await self.create_transaction(request, token)
         url = await self.get_interactive_url(request, token, tx)
         return Sep24PostResponse(
@@ -84,6 +90,12 @@ class Sep24(ABC):
     async def http_post_transactions_withdraw_interactive(
         self, request: Sep24WithdrawPostRequest, token: Sep10Token
     ) -> Sep24PostResponse:
+        info = await self.http_get_info(Sep24InfoRequest(lang=request.lang))
+        try:
+            if not info["withdraw"][request.asset_code].enabled:
+                raise KeyError()
+        except KeyError:
+            raise ValueError(f"Withdrawal is not enabled for asset {request.asset_code}")
         tx = await self.create_transaction(request, token)
         url = await self.get_interactive_url(request, token, tx)
         return Sep24PostResponse(
@@ -92,57 +104,69 @@ class Sep24(ABC):
         )
 
     async def task_all(self) -> None:
+        print("running task_all")
         coroutines = [
             self.task_poll_deposits_to_receive(),
             self.task_send_deposits(),
             self.task_poll_withdrawals_sent(),
             self.task_send_withdrawals(),
         ]
-        await asyncio.gather(*coroutines)
+        results = await asyncio.gather(*coroutines)
 
     async def task_poll_deposits_to_receive(self) -> None:
         deposits_to_receive = await self.get_transactions(
             kind="deposit", status="pending_user_transfer_start"
         )
+        print(f"deposits_to_receive: {len(deposits_to_receive)}")
         coroutines = [
             self.is_deposit_received(deposit) for deposit in deposits_to_receive
         ]
-        results = await asyncio.gather(*coroutines)
+        results = await asyncio.gather(*coroutines, return_exceptions=True)
         received_deposits = []
-        for deposit, received in zip(deposits_to_receive, results):
-            if received is True:
+        for deposit, result in zip(deposits_to_receive, results):
+            if result is True:
                 received_deposits.append(deposit)
+            elif isinstance(result, Exception):
+                logger.exception(result)
         await self.update_transactions(received_deposits, status="pending_anchor")
 
     async def task_send_deposits(self) -> None:
         deposits_received = await self.get_transactions(
             kind="deposit", status="pending_anchor"
         )
+        print(f"deposits_received: {len(deposits_received)}")
         coroutines = [self.send_deposit(deposit) for deposit in deposits_received]
-        await asyncio.gather(*coroutines)
+        results = await asyncio.gather(*coroutines, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                logger.exception(result)
 
     async def task_poll_withdrawals_sent(self) -> None:
         withdrawals_sent = await self.get_transactions(
             kind="withdrawal", status="pending_external"
         )
+        print(f"withdrawals_sent: {len(withdrawals_sent)}")
         coroutines = [
             self.is_withdrawal_complete(withdrawal) for withdrawal in withdrawals_sent
         ]
-        results = await asyncio.gather(*coroutines)
+        results = await asyncio.gather(*coroutines, return_exceptions=True)
         completed_withdrawals = []
-        for withdrawal, completed in zip(withdrawals_sent, results):
-            if completed is True:
+        for withdrawal, result in zip(withdrawals_sent, results):
+            if result is True:
                 completed_withdrawals.append(withdrawal)
+            elif isinstance(result, Exception):
+                logger.exception(result)
         await self.update_transactions(completed_withdrawals, status="completed")
 
     async def task_send_withdrawals(self) -> None:
         withdrawals_received = await self.get_transactions(
             kind="withdrawal", status="pending_anchor"
         )
+        print(f"withdrawals_received: {len(withdrawals_received)}")
         coroutines = [
             self.send_withdrawal(withdrawal) for withdrawal in withdrawals_received
         ]
-        await asyncio.gather(*coroutines)
+        await asyncio.gather(*coroutines, return_exceptions=True)
 
     async def watch_withdrawals_to_receive(self) -> None:
         withdrawals_to_receive = await self.get_transactions(
@@ -153,7 +177,7 @@ class Sep24(ABC):
             *[
                 self.stream_withdraw_anchor_account(account)
                 for account in accounts
-            ]
+            ],
         )
 
     async def stream_withdraw_anchor_account(self, account: str):
@@ -175,7 +199,10 @@ class Sep24(ABC):
 
             endpoint = server.transactions().for_account(account).cursor(cursor)
             async for response in endpoint.stream():
-                await self.process_stream_response(response, account)
+                try:
+                    await self.process_stream_response(response, account)
+                except Exception as e:
+                    logger.exception(e)
 
     async def process_stream_response(self, response, account: str):
         # We should not match valid pending transactions with ones that were
@@ -217,7 +244,7 @@ class Sep24(ABC):
             response, horizon_tx, op_results, transaction
         )
         if payment_data is None:
-            self.log(f"Transaction matching memo {memo} has no payment operation")
+            logger.info(f"Transaction matching memo {memo} has no payment operation")
             return
 
         await self.process_withdrawal_received(
@@ -352,7 +379,7 @@ class Sep24(ABC):
         self,
         request: Union[Sep24DepositPostRequest, Sep24WithdrawPostRequest],
         token: Sep10Token,
-    ) -> None:
+    ) -> Sep24Transaction:
         raise NotImplementedError()
 
     @abstractmethod
@@ -409,3 +436,4 @@ class Sep24(ABC):
     @abstractmethod
     async def get_withdraw_anchor_account_cursor(self, account: str) -> Optional[str]:
         raise NotImplementedError()
+

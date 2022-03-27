@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fawaris"
-version = "0.1.13"
+version = "0.1.36"
 description = "Async framework-agnostic Stellar Anchor implementation"
 authors = ["Yuri Escalianti <yuriescl@gmail.com>"]
 license = "Apache License Version 2.0"

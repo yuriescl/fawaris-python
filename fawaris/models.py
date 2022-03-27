@@ -86,8 +86,8 @@ class Sep24Transaction(BaseModel):
     amount_out_asset: Optional[str]
     amount_fee: Optional[str]
     amount_fee_asset: Optional[str]
-    from_address: Optional[str]
-    to_address: Optional[str]
+    from_address: Optional[str] = Field(None, alias="from")
+    to_address: Optional[str] = Field(None, alias="to")
     external_extra: Optional[str]
     external_extra_text: Optional[str]
     deposit_memo: Optional[str]
@@ -105,10 +105,14 @@ class Sep24Transaction(BaseModel):
     required_info_updates: Optional[Sep24TransactionRequiredInfoUpdates]
     claimable_balance_id: Optional[str]
 
+    class Config:
+        allow_population_by_field_name = True
+
 
 class Asset(BaseModel):
     code: str
     issuer: Optional[str]
+    decimal_places: int = 7
 
 class Sep10GetRequest(BaseModel):
     """

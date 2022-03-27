@@ -1,6 +1,7 @@
 from typing import Optional, List, Dict, Union, Iterable, Callable, Any
 from urllib.parse import urlparse
 from datetime import datetime, timezone
+import logging
 import os
 import os.path
 
@@ -38,7 +39,9 @@ from fawaris.models import (
     Sep10PostRequest,
     Sep10PostResponse,
 )
+from fawaris.exceptions import Sep10InvalidToken
 
+logger = logging.getLogger(__name__)
 
 class Sep10:
     host_url: str
@@ -46,11 +49,10 @@ class Sep10:
     horizon_url: str
     network_passphrase: str
     signing_secret: str
-    jwt_key: str
+    jwt_secret: str
     client_domain_required: bool
     client_domains_allowed: Optional[List[str]]
     client_domains_denied: Optional[List[str]]
-    log: Callable[[str], Any]
 
     server_account_id: str
     web_auth_domain: str
@@ -62,11 +64,10 @@ class Sep10:
         horizon_url: str,
         network_passphrase: str,
         signing_secret: str,
-        jwt_key: str,
+        jwt_secret: str,
         client_domain_required: bool = False,
         client_domains_allowed: Optional[List[str]] = None,
         client_domains_denied: Optional[List[str]] = None,
-        log: Optional[Callable[[str], Any]] = lambda msg: None,
     ):
         """
         Implementation of `SEP0010 <https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md>`_
@@ -81,7 +82,7 @@ class Sep10:
         :param signing_secret: Challenge transaction signing seed, which is the
             secret key of the public key SIGNING_KEY from this Anchor's
             stellar.toml
-        :param jwt_key: JWT secret key used to encode the JWT
+        :param jwt_secret: JWT secret key used to encode the JWT
         :param client_domain_required: Require client_domain when building
             challenge transaction
         :param client_domains_allowed: List of allowed client_domain values.
@@ -89,7 +90,6 @@ class Sep10:
         :param client_domains_denied: List of denied client_domain values.
             If not set, any client_domain is accepted. If a client_domain is
             listed both here and in client_domains_allowed, it will be denied
-        :param log: A function to log debug messages
         """
         if not urlparse(host_url).netloc:
             raise ValueError(f"{host_url} is not a valid host_url")
@@ -107,11 +107,10 @@ class Sep10:
         self.signing_secret = signing_secret
         self.server_account_id = kp.public_key
 
-        self.jwt_key = jwt_key
+        self.jwt_secret = jwt_secret
         self.client_domain_required = client_domain_required
         self.client_domains_allowed = client_domains_allowed
         self.client_domains_denied = client_domains_denied
-        self.log = log
 
     async def http_get(
         self,
@@ -214,7 +213,7 @@ class Sep10:
         return client_signing_key
 
     async def _validate_challenge_xdr(self, request: Sep10GetRequest):
-        self.log("Validating challenge transaction")
+        logger.debug("Validating challenge transaction")
         try:
             challenge = read_challenge_transaction(
                 challenge_transaction=request.transaction,
@@ -248,7 +247,7 @@ class Sep10:
             ) as server:
                 account = await server.load_account(stellar_account)
         except NotFoundError:
-            self.log("Account does not exist, using client's master key to verify")
+            logger.debug("Account does not exist, using client's master key to verify")
             try:
                 verify_challenge_transaction_signed_by_client_master_key(
                     challenge_transaction=request.transaction,
@@ -269,7 +268,7 @@ class Sep10:
                     f"Missing or invalid signature(s) for {challenge.client_account_id}: {str(e)}"
                 )
             else:
-                self.log("Challenge verified using client's master key")
+                logger.debug("Challenge verified using client's master key")
                 return client_domain
 
         signers = account.load_ed25519_public_key_signers()
@@ -283,7 +282,7 @@ class Sep10:
             threshold=threshold,
             signers=signers,
         )
-        self.log(
+        logger.debug(
             f"Challenge verified using account signers: {[s.account_id for s in signers_found]}"
         )
 
@@ -299,7 +298,7 @@ class Sep10:
             web_auth_domain=self.web_auth_domain,
             network_passphrase=self.network_passphrase,
         )
-        self.log(f"Generating SEP-10 token for account {challenge.client_account_id}")
+        logger.debug(f"Generating SEP-10 token for account {challenge.client_account_id}")
 
         # set iat value to minimum timebound of the challenge so that the JWT returned
         # for a given challenge is always the same.
@@ -320,7 +319,7 @@ class Sep10:
             "jti": challenge.transaction.hash().hex(),
             "client_domain": client_domain,
         }
-        return jwt.encode(jwt_dict, self.jwt_key, algorithm="HS256")
+        return jwt.encode(jwt_dict, self.jwt_secret, algorithm="HS256")
 
 class Sep10Token:
     """
@@ -330,19 +329,19 @@ class Sep10Token:
 
     _REQUIRED_FIELDS = {"iss", "sub", "iat", "exp"}
 
-    def __init__(self, jwt: Union[str, Dict], jwt_key):
+    def __init__(self, jwt: Union[str, Dict], jwt_secret):
         if isinstance(jwt, str):
             try:
-                jwt = decode(jwt, jwt_key, algorithms=["HS256"])
+                jwt = decode(jwt, jwt_secret, algorithms=["HS256"])
             except InvalidTokenError as e:
-                raise ValueError("unable to decode jwt" + str(e))
+                raise Sep10InvalidToken("unable to decode jwt" + str(e))
         elif not isinstance(jwt, Dict):
-            raise ValueError(
+            raise Sep10InvalidToken(
                 "invalid type for 'jwt' parameter: must be a string or dictionary"
             )
 
         if not self._REQUIRED_FIELDS.issubset(set(jwt.keys())):
-            raise ValueError(
+            raise Sep10InvalidToken(
                 f"jwt is missing one of the required fields: {', '.join(self._REQUIRED_FIELDS)}"
             )
 
@@ -352,12 +351,12 @@ class Sep10Token:
             try:
                 StrKey.decode_muxed_account(jwt["sub"])
             except (MuxedEd25519AccountInvalidError, StellarSdkValueError):
-                raise ValueError(f"invalid muxed account address: {jwt['sub']}")
+                raise Sep10InvalidToken(f"invalid muxed account address: {jwt['sub']}")
         elif ":" in jwt["sub"]:
             try:
                 stellar_account, memo = jwt["sub"].split(":")
             except ValueError:
-                raise ValueError(f"improperly formatted 'sub' value: {jwt['sub']}")
+                raise Sep10InvalidToken(f"improperly formatted 'sub' value: {jwt['sub']}")
         else:
             stellar_account = jwt["sub"]
 
@@ -365,35 +364,35 @@ class Sep10Token:
             try:
                 Keypair.from_public_key(stellar_account)
             except Ed25519PublicKeyInvalidError:
-                raise ValueError(f"invalid Stellar public key: {jwt['sub']}")
+                raise Sep10InvalidToken(f"invalid Stellar public key: {jwt['sub']}")
 
         if memo:
             try:
                 int(memo)
             except ValueError:
-                raise ValueError(
+                raise Sep10InvalidToken(
                     f"invalid memo in 'sub' value, expected 64-bit integer: {memo}"
                 )
 
         try:
             iat = datetime.fromtimestamp(jwt["iat"], tz=timezone.utc)
         except (OSError, ValueError, OverflowError):
-            raise ValueError("invalid iat value")
+            raise Sep10InvalidToken("invalid iat value")
         try:
             exp = datetime.fromtimestamp(jwt["exp"], tz=timezone.utc)
         except (OSError, ValueError, OverflowError):
-            raise ValueError("invalid exp value")
+            raise Sep10InvalidToken("invalid exp value")
 
         now = datetime.now(tz=timezone.utc)
         if now < iat or now > exp:
-            raise ValueError("jwt is no longer valid")
+            raise Sep10InvalidToken("jwt is no longer valid")
 
         client_domain = jwt.get("client_domain")
         if (
             client_domain
             and urlparse(f"https://{client_domain}").netloc != client_domain
         ):
-            raise ValueError("'client_domain' must be a hostname")
+            raise Sep10InvalidToken("'client_domain' must be a hostname")
 
         self._payload = jwt
 
