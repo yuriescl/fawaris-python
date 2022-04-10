@@ -31,7 +31,7 @@ python -m unittest discover tests
 
 Todo:
 - v1
-    - replace watch by pooling
+    - add both pooling and trigger-like functionality
     - locking
         - operation protection on transactions
         - add documentation regarding database locks
